@@ -14,6 +14,7 @@ describe("name and city matching", () => {
     expect(sameName("Ratanà", "RATANA")).toBe(true);
     expect(sameName("Ristorante Da Gino", "Da Gino")).toBe(true);
     expect(sameName("Jazz Cafe", "Osteria Japo-Jazz")).toBe(false);
+    expect(sameName("Ratanà", "Ratanakorn market")).toBe(false);
   });
   it("knows local city names", () => {
     expect(inCity({ id: "1", name: "x", address: "Via Roma 1, 20100 Milano MI Italy" }, "Milan")).toBe(true);

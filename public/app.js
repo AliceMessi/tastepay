@@ -255,7 +255,8 @@ function pickCard(p, i, loading) {
 
 function renderBaseline(b) {
   $("#compare").classList.remove("hidden");
-  $("#baseline").textContent = b.text ?? "No free model answered this time — the Qloo-based plan above does not need one.";
+  // Plain text: drop markdown emphasis the model may add.
+  $("#baseline").textContent = b.text ? b.text.replace(/\*\*|__/g, "").replace(/(^|\s)[*_](\S)/g, "$1$2").replace(/(\S)[*_](?=\s|[.,;:]|$)/g, "$1") : "No free model answered this time — the Qloo-based plan above does not need one.";
   const labels = { "in-city": "Found in the city", "other-city": "Different city", "not-found": "Not in Qloo's place data" };
   $("#claims").replaceChildren(...(b.claims ?? []).map((c) => h("li", {},
     h("div", { class: `verdict v-${c.verdict}` }, labels[c.verdict] + (c.overBudget ? " · over your budget" : "")),

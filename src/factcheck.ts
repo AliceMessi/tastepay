@@ -32,13 +32,19 @@ export function fold(s: string): string {
   return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 }
 
-/** Same venue if one name contains the other or most words overlap. */
+/**
+ * Same venue if every word of the shorter name is a whole word of the longer one
+ * ("Da Gino" ~ "Ristorante Da Gino"), or most words overlap. Partial words do not
+ * count: "Ratana" is not "Ratanakorn market".
+ */
 export function sameName(a: string, b: string): boolean {
   const x = fold(a), y = fold(b);
   if (!x || !y) return false;
-  if (x === y || x.includes(y) || y.includes(x)) return true;
+  if (x === y) return true;
   const wx = new Set(x.split(" ")), wy = new Set(y.split(" "));
-  const common = [...wx].filter((w) => wy.has(w)).length;
+  const [small, big] = wx.size <= wy.size ? [wx, wy] : [wy, wx];
+  const common = [...small].filter((w) => big.has(w)).length;
+  if (common === small.size && [...small].some((w) => w.length >= 3)) return true;
   return common / Math.max(wx.size, wy.size) >= 0.6;
 }
 
