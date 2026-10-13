@@ -10,6 +10,38 @@ export function validShare(amount: unknown): number | null {
   return Number.isFinite(n) && n >= 1 && n <= MAX_SHARE_EUR ? n : null;
 }
 
+export interface Receipt {
+  orderId: string;
+  status: string;
+  captureId?: string;
+  captureStatus?: string;
+  amount?: string;
+  currency?: string;
+  description?: string;
+  createdAt?: string;
+  paidAt?: string;
+  method?: string;
+}
+
+/** The parts of a PayPal order worth showing on a receipt (no personal data). */
+export function toReceipt(order: any): Receipt {
+  const unit = order?.purchase_units?.[0] ?? {};
+  const capture = unit.payments?.captures?.[0];
+  const card = order?.payment_source?.card;
+  return {
+    orderId: order?.id,
+    status: order?.status,
+    captureId: capture?.id,
+    captureStatus: capture?.status,
+    amount: capture?.amount?.value ?? unit.amount?.value,
+    currency: capture?.amount?.currency_code ?? unit.amount?.currency_code,
+    description: unit.description,
+    createdAt: order?.create_time,
+    paidAt: capture?.create_time ?? order?.update_time,
+    method: card ? `${card.brand ?? "Card"} ···· ${card.last_digits ?? ""}`.trim() : order?.payment_source?.paypal ? "PayPal" : undefined,
+  };
+}
+
 export class PayPalSandbox {
   constructor(
     private clientId: string,
@@ -48,7 +80,7 @@ export class PayPalSandbox {
     return ((await res.json()) as any).id;
   }
 
-  async capture(orderId: string): Promise<{ status: string; id: string }> {
+  async capture(orderId: string): Promise<Receipt> {
     if (!/^[A-Z0-9]{8,30}$/.test(orderId)) throw new Error("Invalid order id");
     const res = await this.fetchImpl(`${this.base}/v2/checkout/orders/${orderId}/capture`, {
       method: "POST",
@@ -57,6 +89,18 @@ export class PayPalSandbox {
     });
     const body: any = await res.json();
     if (!res.ok) throw new Error(`PayPal capture failed: HTTP ${res.status}`);
-    return { status: body.status, id: body.id };
+    return toReceipt(body);
+  }
+
+  /** Live status of an order, straight from PayPal (used by the receipt page). */
+  async order(orderId: string): Promise<Receipt> {
+    if (!/^[A-Z0-9]{8,30}$/.test(orderId)) throw new Error("Invalid order id");
+    const res = await this.fetchImpl(`${this.base}/v2/checkout/orders/${orderId}`, {
+      headers: { Authorization: `Bearer ${await this.token()}` },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (res.status === 404) throw new Error("Order not found");
+    if (!res.ok) throw new Error(`PayPal order lookup failed: HTTP ${res.status}`);
+    return toReceipt(await res.json());
   }
 }

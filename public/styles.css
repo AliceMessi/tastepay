@@ -176,8 +176,22 @@ textarea { resize: vertical; width: 100%; }
 .card-form .cf-row { display: flex; gap: 8px; }
 .card-form .half { flex: 1; }
 .primary.small { padding: 9px 16px; font-size: 14px; margin-top: 8px; box-shadow: none; }
+.gen-link { display: inline-block; margin: 8px 0 2px; font-size: 13px; color: var(--qloo); font-weight: 600; text-decoration: none; }
+.gen-btn { display: inline-block; margin-left: 6px; background: var(--ink); color: var(--bg) !important; padding: 3px 10px; border-radius: 999px; text-decoration: none; font-weight: 600; }
+.paid a { color: var(--qloo); }
+.pot { margin: 6px 0 12px; }
+.pot-head { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px; }
+.pot .track { height: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 99px; overflow: hidden; }
+.pot .fill { height: 100%; background: var(--good); transition: width .4s; }
 .sandbox-help { margin-top: 14px; border: 1px dashed var(--line); border-radius: 12px; padding: 12px 14px; font-size: 13px; color: var(--muted); }
 .sandbox-help b { color: var(--ink); }
 .sandbox-help ul { margin: 6px 0 0; padding-left: 18px; }
 .sandbox-help code { background: var(--bg); padding: 1px 5px; border-radius: 5px; color: var(--ink); }
 .payer { grid-template-columns: 140px minmax(0, 360px); }
+
+.receipt { max-width: 640px; padding: 40px 0; }
+.receipt .r-title { font-size: 40px; margin: 6px 0 18px; }
+.receipt .r-title.ok { color: var(--good); }
+.receipt dl { display: grid; grid-template-columns: 200px 1fr; gap: 8px 16px; margin: 0; font-size: 15px; }
+.receipt dt { color: var(--muted); }
+.receipt dd { margin: 0; word-break: break-all; }

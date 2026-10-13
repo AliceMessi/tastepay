@@ -15,6 +15,13 @@ export default (req: Request) =>
       return json({ id: await paypal.createOrder(amount, `TastePay share: ${String(body.description ?? "group plan")}`) });
     }
     if (body.action === "capture" && body.orderId) return json(await paypal.capture(body.orderId));
+    if (body.action === "status" && body.orderId) {
+      try {
+        return json(await paypal.order(body.orderId));
+      } catch (e) {
+        return json({ error: String((e as Error).message) }, 404);
+      }
+    }
     return json({ error: "Unknown action" }, 400);
   });
 

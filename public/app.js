@@ -4,13 +4,14 @@
 const $ = (s) => document.querySelector(s);
 const OCC_LOCAL = { dinner: true, drinks: true, culture: true, trip: false };
 const OCC_ICON = { dinner: "🍽", drinks: "🍸", culture: "🖼", trip: "✈️" };
+const CARD_GENERATOR = "https://developer.paypal.com/credit-card-number-generator";
 const EXAMPLE = [
   { name: "Sara", favourites: ["Radiohead", "Haruki Murakami"] },
   { name: "Luca", favourites: ["The Grand Budapest Hotel", "Miles Davis"] },
   { name: "Giulia", favourites: ["Spirited Away", "Billie Eilish"] },
 ];
 
-const state = { tab: "form", occasion: "dinner", request: null, members: [], picks: [], explanations: {}, chosen: null, paypal: null };
+const state = { tab: "form", occasion: "dinner", request: null, members: [], picks: [], explanations: {}, chosen: null, paypal: null, paid: {} };
 
 function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
@@ -362,9 +363,26 @@ async function loadPayPal() {
   return state.paypal;
 }
 
+function renderPot(pick) {
+  const members = state.request.members.map((m) => m.name);
+  const share = Number($("#share").value);
+  const done = members.filter((n) => state.paid[n] !== undefined);
+  const collected = done.reduce((s, n) => s + state.paid[n], 0);
+  const total = share * members.length;
+  const pct = Math.min(100, Math.round((collected / total) * 100));
+  $("#pot").replaceChildren(
+    h("div", { class: "pot-head" }, h("b", {}, `${done.length} of ${members.length} paid`), h("span", {}, `€${collected.toFixed(2)} of €${total.toFixed(2)}`)),
+    h("div", { class: "track" }, h("div", { class: "fill", style: `width:${pct}%` })),
+    h("p", { class: "fine" }, done.length === members.length
+      ? `Pot complete for ${pick.candidate.name}. In this sandbox demo the shares are collected in TastePay's PayPal business account; in a live version the pot would go to the venue (if it accepts PayPal) or to the organiser who books.`
+      : "Each share goes into the group pot (TastePay's PayPal sandbox business account). Nobody pays for anyone else."));
+}
+
 async function renderPayers(pick) {
   const box = $("#payers");
   box.replaceChildren();
+  state.paid = {};
+  renderPot(pick);
   let paypal;
   try { paypal = await loadPayPal(); } catch (e) { box.append(h("p", { class: "status error" }, e.message)); return; }
   const cardFieldsOk = Boolean(paypal.CardFields) && paypal.CardFields({ createOrder: async () => "" }).isEligible();
@@ -373,11 +391,18 @@ async function renderPayers(pick) {
     box.append(h("div", { class: "payer" }, h("b", {}, m.name), slot));
     const createOrder = async () =>
       (await api("/api/pay", { action: "create", amount: Number($("#share").value), description: `${pick.candidate.name} (${m.name})` })).id;
+    let paid = false;
     const onApprove = async (data) => {
       const r = await api("/api/pay", { action: "capture", orderId: data.orderID });
-      slot.replaceChildren(h("span", { class: "paid" }, `Paid ✓ €${Number($("#share").value).toFixed(2)} · sandbox order ${r.id}`));
+      paid = true;
+      state.paid[m.name] = Number(r.amount ?? $("#share").value);
+      slot.replaceChildren(h("div", { class: "paid" },
+        `Paid ✓ €${Number(r.amount ?? $("#share").value).toFixed(2)}${r.method ? ` · ${r.method}` : ""} · `,
+        h("a", { href: `receipt.html?order=${encodeURIComponent(r.orderId)}`, target: "_blank", rel: "noopener" }, "Receipt ↗")));
+      renderPot(pick);
     };
-    const onError = (err) => slot.append(h("p", { class: "status error" }, String(err?.message ?? err)));
+    // PayPal's card popup can report a late "window closed" after a successful payment: ignore it then.
+    const onError = (err) => { if (!paid) slot.append(h("p", { class: "status error" }, String(err?.message ?? err))); };
 
     if (cardFieldsOk) {
       // Card form inline; PayPal button only for the PayPal wallet itself.
@@ -392,7 +417,8 @@ async function renderPayers(pick) {
 }
 
 function cardForm(paypal, createOrder, onApprove, onError) {
-  const form = h("details", { class: "card-form" }, h("summary", {}, "Pay by card (no PayPal account)"));
+  const form = h("details", { class: "card-form" }, h("summary", {}, "Pay by card (no PayPal account)"),
+    h("a", { class: "gen-link", href: CARD_GENERATOR, target: "_blank", rel: "noopener" }, "Need a test card? Generate one ↗"));
   const fields = { name: h("div", { class: "cf" }), number: h("div", { class: "cf" }), expiry: h("div", { class: "cf half" }), cvv: h("div", { class: "cf half" }) };
   const pay = h("button", { type: "button", class: "primary small" }, `Pay €${Number($("#share").value).toFixed(2)}`);
   form.append(fields.name, fields.number, h("div", { class: "cf-row" }, fields.expiry, fields.cvv), pay);
