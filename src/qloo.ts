@@ -43,6 +43,14 @@ export interface Candidate {
   closed?: boolean;
 }
 
+export interface PlaceHit {
+  id: string;
+  name: string;
+  city?: string;
+  address?: string;
+  priceLevel?: number;
+}
+
 export interface InsightsQuery {
   type: string;
   entityIds: string[];
@@ -96,6 +104,22 @@ export class QlooClient {
       type: (r.types ?? [r.subtype])[0],
       detail: r.disambiguation ?? undefined,
     }));
+  }
+
+  /** Venues matching a name, with where they are (used to fact-check other answers). */
+  async searchPlaces(name: string, take = 3): Promise<PlaceHit[]> {
+    const body = await this.get("/search", { query: name, types: "urn:entity:place", take: String(take) });
+    return (body.results ?? []).map((r: any) => {
+      const p = r.properties ?? {};
+      const price = Number(p.price_level);
+      return {
+        id: r.entity_id,
+        name: r.name,
+        city: p.geocode?.city ?? p.locality?.city?.name ?? undefined,
+        address: p.address ?? undefined,
+        priceLevel: Number.isFinite(price) && price > 0 ? price : undefined,
+      };
+    });
   }
 
   /** Entities of `type` ranked by affinity to the given taste signals. */

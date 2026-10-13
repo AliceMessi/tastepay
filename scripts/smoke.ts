@@ -11,9 +11,10 @@ const u = await agent.understand(brief); log(u.trace);
 const r = await agent.resolve(u.request.members); log(r.trace);
 const k = await agent.rank(u.request, r.members); k.trace.forEach(log);
 const [e, b] = await Promise.all([agent.explain(u.request, r.members, k.picks), agent.baseline(u.request)]);
-log(e.trace); log(b.trace);
+log(e.trace); b.trace.forEach(log);
 for (const p of k.picks) {
   const x = e.explanations[p.candidate.id];
   console.log(`\n* ${p.candidate.name} ${Math.round(p.fit * 100)}% | ${p.sharedTags.map((t) => t.name).join(", ")}\n  ${x.why}\n  ${JSON.stringify(x.perMember)}`);
 }
 console.log("\nWITHOUT QLOO:", (b.text ?? "none").slice(0, 300));
+for (const c of b.claims) console.log(`  - ${c.named}: ${c.verdict}${c.match ? ` (${c.match.name}, ${c.match.city ?? c.match.address})` : ""}${c.overBudget ? " OVER BUDGET" : ""}`);

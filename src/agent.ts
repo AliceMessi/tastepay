@@ -5,6 +5,7 @@
 import { extractJson, LlmClient } from "./llm.ts";
 import { rankGroup, type GroupPick, type MemberScores } from "./group.ts";
 import { QlooClient, type TasteEntity } from "./qloo.ts";
+import { extractNamedPlaces, factCheck, type Claim } from "./factcheck.ts";
 
 export type Occasion = "dinner" | "drinks" | "culture" | "trip";
 
@@ -209,8 +210,8 @@ export class TasteAgent {
     };
   }
 
-  /** The comparison: the same brief answered by an LLM with no taste data. */
-  async baseline(req: PlanRequest): Promise<{ text: string | null; trace: TraceStep }> {
+  /** The comparison: the same brief answered by an LLM with no taste data, then checked against Qloo. */
+  async baseline(req: PlanRequest): Promise<{ text: string | null; claims: Claim[]; trace: TraceStep[] }> {
     const t = Date.now();
     const members = activeMembers(req.members);
     const who = members.map((m) => `${m.name} loves ${m.favourites.join(", ")}`).join("; ");
@@ -221,10 +222,24 @@ export class TasteAgent {
       undefined,
       600,
     );
-    return {
-      text: res?.message.content?.trim() || null,
-      trace: { step: "LLM without Qloo", source: res ? `LLM ${res.model}` : "no model answered", detail: "same brief, no taste data", ms: Date.now() - t },
-    };
+    const text = res?.message.content?.trim() || null;
+    const trace: TraceStep[] = [
+      { step: "LLM without Qloo", source: res ? `LLM ${res.model}` : "no model answered", detail: "same brief, no taste data", ms: Date.now() - t },
+    ];
+    let claims: Claim[] = [];
+    if (text && OCCASIONS[req.occasion].local) {
+      const t2 = Date.now();
+      claims = await factCheck(this.qloo, extractNamedPlaces(text), req.city, req.budgetPerPerson);
+      const count = (v: Claim["verdict"]) => claims.filter((c) => c.verdict === v).length;
+      trace.push({
+        step: "Fact-check",
+        source: "Qloo /search (places)",
+        detail: `${count("in-city")} found in ${req.city}, ${count("other-city")} in another city, ${count("not-found")} not found` +
+          (claims.some((c) => c.overBudget) ? `, ${claims.filter((c) => c.overBudget).length} over budget` : ""),
+        ms: Date.now() - t2,
+      });
+    }
+    return { text, claims, trace };
   }
 }
 
