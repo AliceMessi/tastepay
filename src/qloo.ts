@@ -60,9 +60,13 @@ export interface InsightsQuery {
   tags?: string[];
   take?: number;
   page?: number;
+  point?: { lat: number; lon: number; radiusM: number };
 }
 
 type Fetch = typeof fetch;
+
+/** Qloo could not turn the city name into a locality (small towns). */
+export class QlooLocalityError extends Error {}
 
 export class QlooClient {
   private cache = new Map<string, unknown>();
@@ -92,7 +96,11 @@ export class QlooClient {
       const wait = Number(res.headers.get("retry-after")) * 1000 || this.backoffMs * 2 ** attempt;
       if (attempt < this.retries) await new Promise((r) => setTimeout(r, wait));
     }
-    if (!res!.ok) throw new Error(`Qloo ${path} failed: HTTP ${res!.status}`);
+    if (!res!.ok) {
+      const detail = await res!.text().catch(() => "");
+      if (res!.status === 400 && detail.includes("unable to resolve to a valid locality")) throw new QlooLocalityError(detail);
+      throw new Error(`Qloo ${path} failed: HTTP ${res!.status}`);
+    }
     const body = await res!.json();
     this.cache.set(url, body);
     return body;
@@ -132,7 +140,10 @@ export class QlooClient {
       "signal.interests.entities": q.entityIds.join(","),
       take: String(Math.min(q.take ?? 50, 50)),
     };
-    if (q.location) params["filter.location.query"] = q.location;
+    if (q.point) {
+      params["filter.location"] = `POINT(${q.point.lon} ${q.point.lat})`;
+      params["filter.location.radius"] = String(q.point.radiusM);
+    } else if (q.location) params["filter.location.query"] = q.location;
     if (q.tags?.length) params["filter.tags"] = q.tags.join(",");
     if (q.page && q.page > 1) params.page = String(q.page);
     const body = await this.get("/v2/insights", params);

@@ -66,6 +66,36 @@ describe("TasteAgent without any LLM", () => {
     expect(k.trace[0].detail).toMatch(/Qloo busy for/);
   });
 
+  it("falls back to coordinates when Qloo cannot resolve a small town", async () => {
+    const seen: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      const u = new URL(url);
+      seen.push(url);
+      if (u.pathname === "/search") return new Response(JSON.stringify({ results: [{ entity_id: `id-${u.searchParams.get("query")}`, name: "x", types: ["urn:entity:artist"] }] }));
+      if (u.searchParams.has("filter.location.query")) return new Response(JSON.stringify({ errors: [{ message: "filter.location.query is unable to resolve to a valid locality." }] }), { status: 400 });
+      return new Response(JSON.stringify({ success: true, results: { entities: VENUES } }));
+    }) as typeof fetch;
+    const qloo = new QlooClient("k", "https://qloo.test", fetchImpl, 1000, 0, 1);
+    const agent = new TasteAgent(qloo, offlineLlm, async () => ({ lat: 41.2, lon: 16.6, label: "Molfetta, Bari" }));
+    const req = { ...request, city: "Molfetta" };
+    const r = await agent.resolve(req.members);
+    const k = await agent.rank(req, r.members);
+    expect(k.picks.length).toBeGreaterThan(0);
+    expect(k.trace[0].detail).toMatch(/within 12 km of Molfetta/);
+    expect(seen.some((u) => u.includes("POINT"))).toBe(true);
+  });
+
+  it("explains when a town cannot be found at all", async () => {
+    const fetchImpl = (async (url: string) => {
+      const u = new URL(url);
+      if (u.pathname === "/search") return new Response(JSON.stringify({ results: [{ entity_id: "id-x", name: "x", types: ["urn:entity:artist"] }] }));
+      return new Response(JSON.stringify({ errors: [{ message: "unable to resolve to a valid locality" }] }), { status: 400 });
+    }) as typeof fetch;
+    const agent = new TasteAgent(new QlooClient("k", "https://qloo.test", fetchImpl, 1000, 0, 1), offlineLlm, async () => null);
+    const r = await agent.resolve(request.members);
+    await expect(agent.rank({ ...request, city: "Nowhereville" }, r.members)).rejects.toThrow(/could not find "Nowhereville"/);
+  });
+
   it("returns no baseline when no model is available", async () => {
     const b = await new TasteAgent(fakeQloo(), offlineLlm).baseline(request);
     expect(b.text).toBeNull();
@@ -79,6 +109,7 @@ describe("keeper", () => {
     const many = [...Array(6)].map((_, i) => c(`k${i}`, 0.95)).concat([c("obscure", 0.5)]);
     expect(keeper()(many).map((x) => x.id)).not.toContain("obscure");
     expect(keeper()([c("a", 0.95), c("obscure", 0.5)]).map((x) => x.id)).toEqual(["a", "obscure"]);
+    expect(keeper()([c("La Pineta Ricevimenti", 0.95), c("Trattoria", 0.95)]).map((x) => x.id)).toEqual(["Trattoria"]);
   });
 });
 

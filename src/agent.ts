@@ -4,13 +4,16 @@
 
 import { extractJson, LlmClient } from "./llm.ts";
 import { rankGroup, type GroupPick, type MemberScores } from "./group.ts";
-import { QlooClient, type Candidate, type TasteEntity } from "./qloo.ts";
+import { QlooClient, QlooLocalityError, type Candidate, type InsightsQuery, type TasteEntity } from "./qloo.ts";
+import { geocode } from "./geo.ts";
 import { extractNamedPlaces, factCheck, type Claim } from "./factcheck.ts";
 
 export type Occasion = "dinner" | "drinks" | "culture" | "trip";
 
 const G = "urn:tag:genre:place:";
-const NOT_DINNER = ["cafe", "coffee", "dessert", "bakery", "ice_cream", "juice", "tea", "donut", "snack"];
+const NOT_DINNER = ["cafe", "coffee", "dessert", "bakery", "ice_cream", "juice", "tea", "donut", "snack", "dance", "banquet", "event", "catering", "night_club", "wedding"];
+// Wedding and event venues often carry a plain "restaurant" genre; their names give them away.
+const EVENT_VENUE = /\b(ricevimenti|receptions?|eventi|events?|banquet|banqueting|wedding|matrimoni|catering)\b/i;
 
 export const OCCASIONS: Record<Occasion, { label: string; type: string; tags?: string[]; local: boolean; accept?: (primaryGenre?: string) => boolean }> = {
   // Qloo's tag filter also returns markets, malls and hotels that merely have a
@@ -21,7 +24,7 @@ export const OCCASIONS: Record<Occasion, { label: string; type: string; tags?: s
   },
   drinks: {
     label: "drinks", type: "urn:entity:place", tags: [`${G}restaurant:bar`], local: true,
-    accept: (g) => !!g && /(bar|pub|brewery|wine|cocktail|lounge|tavern|izakaya)/.test(g.replace(G, "")),
+    accept: (g) => !!g && /(bar|pub|brewery|wine|cocktail|lounge|tavern|izakaya)/.test(g.replace(G, "")) && !/(espresso|coffee|tabac)/.test(g),
   },
   culture: {
     label: "a culture outing", type: "urn:entity:place", tags: [`${G}museum`, `${G}art_gallery`], local: true,
@@ -66,6 +69,14 @@ export interface Explanation {
 
 export const MAX_MEMBERS = 8;
 
+export class CityNotFoundError extends Error {
+  constructor(city: string) {
+    super(`We could not find "${city}". Try the name of a nearby larger city.`);
+  }
+}
+
+const RADIUS_M = 12_000;
+
 export class QlooBusyError extends Error {
   constructor() {
     super("Qloo is busy right now. Please try again in a few seconds.");
@@ -92,7 +103,11 @@ export function activeMembers(members: MemberInput[]): MemberInput[] {
 }
 
 export class TasteAgent {
-  constructor(private qloo: QlooClient, private llm: LlmClient) {}
+  constructor(
+    private qloo: QlooClient,
+    private llm: LlmClient,
+    private geocodeImpl: typeof geocode = geocode,
+  ) {}
 
   /** Step 0 (optional): turn a free-text brief into a structured plan. */
   async understand(brief: string): Promise<{ request: PlanRequest; trace: TraceStep }> {
@@ -157,7 +172,27 @@ export class TasteAgent {
       { member: null as string | null, ids: groupIds, page: 1 },
       { member: null as string | null, ids: groupIds, page: 2 },
     ];
-    const lists = await mapLimit(jobs, 2, async (j) => ({ ...j, picks: await this.qloo.insights({ ...base, entityIds: j.ids, page: j.page }).catch(() => null) }));
+    const run = (where: Partial<InsightsQuery>) =>
+      mapLimit(jobs, 2, async (j) => {
+        try {
+          return { ...j, picks: await this.qloo.insights({ ...base, ...where, entityIds: j.ids, page: j.page }) };
+        } catch (e) {
+          if (e instanceof QlooLocalityError) throw e;
+          return { ...j, picks: null as Candidate[] | null };
+        }
+      });
+    let where = occasion.local ? `in ${req.city}` : "";
+    let lists;
+    try {
+      lists = await run({});
+    } catch (e) {
+      // Small towns: Qloo cannot resolve the name, so search around its coordinates.
+      if (!(e instanceof QlooLocalityError)) throw e;
+      const point = await this.geocodeImpl(req.city!);
+      if (!point) throw new CityNotFoundError(req.city!);
+      lists = await run({ location: undefined, point: { lat: point.lat, lon: point.lon, radiusM: RADIUS_M } });
+      where = `within ${RADIUS_M / 1000} km of ${point.label}`;
+    }
     const keep = keeper(occasion.accept);
     const perMember: MemberScores[] = lists.filter((l) => l.member && l.picks).map((l) => ({ member: l.member!, picks: keep(l.picks!) }));
     const pool = keep(lists.filter((l) => l.member === null).flatMap((l) => l.picks ?? []));
@@ -171,7 +206,7 @@ export class TasteAgent {
         {
           step: "Taste affinities",
           source: "Qloo /v2/insights",
-          detail: `${perMember.map((m) => `${m.member}: ${m.picks.length}`).join(", ")} · group signal: ${pool.length} ${occasion.local ? `places in ${req.city}` : "destinations"}` +
+          detail: `${perMember.map((m) => `${m.member}: ${m.picks.length}`).join(", ")} · group signal: ${pool.length} ${occasion.local ? `places ${where}` : "destinations"}` +
             (missing.length ? ` · Qloo busy for ${missing.join(", ")} (scores estimated)` : ""),
           ms: t2 - t,
         },
@@ -284,7 +319,7 @@ export class TasteAgent {
  */
 export function keeper(accept?: (genre?: string) => boolean, minPopularity = 0.85, minLeft = 6) {
   return (picks: Candidate[]): Candidate[] => {
-    const right = accept ? picks.filter((c) => accept(c.primaryGenre)) : picks;
+    const right = (accept ? picks.filter((c) => accept(c.primaryGenre)) : picks).filter((c) => !EVENT_VENUE.test(c.name));
     const known = right.filter((c) => c.popularity === undefined || c.popularity >= minPopularity);
     return known.length >= minLeft ? known : right;
   };
