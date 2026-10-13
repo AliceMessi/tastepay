@@ -228,9 +228,30 @@ function renderPicks(loading) {
 function pickCard(p, i, loading) {
   const c = p.candidate;
   const ex = state.explanations[c.id];
-  const img = h("div", { class: "img", style: c.image ? `background-image:url("${encodeURI(c.image)}"), linear-gradient(135deg, #ffb199, #ff5a3c 55%, #6c4cf5)` : null },
+  const img = h("div", { class: "img" },
+    photo(c),
     h("span", { class: "rank" }, `#${i + 1}`), h("span", { class: "fit" }, `${Math.round(p.fit * 100)}% group fit`));
   const meta = [c.priceLevel ? "€".repeat(c.priceLevel) : null, c.rating ? `★ ${c.rating}` : null, c.address].filter(Boolean).join(" · ");
+  const today = todayHours(c.hours);
+  const facts = [
+    today ? h("span", { class: "fact" }, `🕒 Today ${today}`) : null,
+    c.liveMusic ? h("span", { class: "fact" }, "🎵 Live music") : null,
+    c.specialties?.length ? h("span", { class: "fact" }, `🍴 ${c.specialties.slice(0, 3).join(", ")}`) : null,
+  ].filter(Boolean);
+  const d = c.details ?? {};
+  const more = [
+    d.highlights ? h("p", {}, h("b", {}, "Why people go: "), d.highlights) : null,
+    d.ambience ? h("p", {}, h("b", {}, "Atmosphere: "), d.ambience) : null,
+    d.cuisine ? h("p", {}, h("b", {}, "Food & drink: "), d.cuisine) : null,
+    d.service ? h("p", {}, h("b", {}, "Service: "), d.service) : null,
+    c.keywords?.length ? h("p", {}, h("b", {}, "People mention: "), c.keywords.join(" · ")) : null,
+  ].filter(Boolean);
+  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([c.name, c.address].filter(Boolean).join(" "))}`;
+  const links = h("div", { class: "links" },
+    h("a", { href: mapsUrl, target: "_blank", rel: "noopener nofollow" }, "Map, photos & reviews ↗"),
+    c.website ? h("a", { href: c.website, target: "_blank", rel: "noopener nofollow" }, "Website ↗") : null,
+    c.menuUrl ? h("a", { href: c.menuUrl, target: "_blank", rel: "noopener nofollow" }, "Menu ↗") : null,
+    c.phone ? h("a", { href: `tel:${c.phone.replace(/[^+\d]/g, "")}` }, `Call ${c.phone}`) : null);
   const bars = h("div", { class: "bars" }, ...p.perMember.flatMap((s) => [
     h("div", { class: "bar" }, h("span", {}, s.member),
       h("div", { class: "track" }, h("div", { class: `fill${s.known ? "" : " est"}`, style: `width:${Math.round(s.score * 100)}%` })),
@@ -243,12 +264,55 @@ function pickCard(p, i, loading) {
       h("h3", {}, c.name),
       meta ? h("div", { class: "meta" }, meta) : null,
       p.sharedTags.length ? h("div", { class: "vibes" }, ...p.sharedTags.map((t) => h("span", { class: "vibe" }, t.name))) : null,
+      facts.length ? h("div", { class: "facts" }, ...facts) : null,
       h("p", { class: `why${loading && !ex ? " loading" : ""}` }, loading && !ex ? `${why} Writing a fuller explanation…` : why),
       bars,
-      c.website ? h("a", { class: "meta", href: c.website, target: "_blank", rel: "noopener nofollow" }, "Website ↗") : null,
+      more.length ? h("details", { class: "more" }, h("summary", {}, "More about this place"), ...more) : null,
+      links,
       h("button", { class: "primary choose", onclick: () => choose(p) }, "Choose & split the bill"),
     ));
   return card;
+}
+
+/**
+ * Qloo photo first (its image server can be slow), then the venue website's own
+ * preview image, then a gradient.
+ */
+function photo(c) {
+  const queue = [...(c.images?.length ? c.images : c.image ? [c.image] : [])];
+  const el = h("img", { alt: "", loading: "lazy", decoding: "async", referrerpolicy: "no-referrer" });
+  let triedWebsite = false;
+  let timer;
+  const next = async () => {
+    clearTimeout(timer);
+    const url = queue.shift();
+    if (url) {
+      el.src = url;
+      timer = setTimeout(next, 6000); // a stalled image server counts as a failure
+      return;
+    }
+    if (!triedWebsite && c.website) {
+      triedWebsite = true;
+      const r = await api("/api/preview", { url: c.website }, 0).catch(() => null);
+      if (r?.image) { queue.push(r.image); return next(); }
+    }
+    el.remove();
+  };
+  el.addEventListener("load", () => { clearTimeout(timer); el.classList.add("loaded"); });
+  el.addEventListener("error", next);
+  next();
+  return el;
+}
+
+const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+/** "12:00–15:00, 19:00–23:00" for today, "closed", or null when Qloo has no hours. */
+function todayHours(hours) {
+  const slots = hours?.[DAYS[new Date().getDay()]];
+  if (!Array.isArray(slots) || !slots.length) return null;
+  if (slots.every((s) => s.closed)) return "closed";
+  const t = (x) => (x ?? "").replace(/^T/, "").slice(0, 5);
+  return slots.filter((s) => !s.closed).map((s) => `${t(s.opens)}–${t(s.closes)}`).join(", ");
 }
 
 // ---------- comparison ----------

@@ -110,15 +110,27 @@ textarea { resize: vertical; width: 100%; }
 
 .picks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
 .pick { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
-.pick .img { height: 170px; background: linear-gradient(135deg, #ffb199, #ff5a3c 55%, #6c4cf5); background-size: cover; background-position: center; position: relative; }
+.pick .img { height: 170px; background: linear-gradient(135deg, #ffb199, #ff5a3c 55%, #6c4cf5); position: relative; overflow: hidden; }
+.pick .img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .3s; }
+.pick .img img.loaded { opacity: 1; }
 .pick .rank { position: absolute; top: 12px; left: 12px; background: rgba(0, 0, 0, .65); color: #fff; font-weight: 700; padding: 4px 10px; border-radius: 999px; font-size: 13px; }
 .pick .fit { position: absolute; top: 12px; right: 12px; background: var(--card); color: var(--ink); font-weight: 700; padding: 4px 10px; border-radius: 999px; font-size: 13px; }
 .pick .body { padding: 18px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
 .pick h3 { font-family: "Fraunces", Georgia, serif; font-size: 23px; margin: 0; }
+.pick .rank, .pick .fit { z-index: 1; }
 .meta { color: var(--muted); font-size: 13px; }
 .vibes { display: flex; flex-wrap: wrap; gap: 6px; }
 .vibe { background: color-mix(in srgb, var(--qloo) 12%, transparent); color: var(--qloo); border-radius: 999px; padding: 3px 9px; font-size: 12px; font-weight: 600; }
 .why { font-size: 15px; margin: 0; }
+.facts { display: flex; flex-wrap: wrap; gap: 6px; }
+.fact { background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; font-size: 12px; }
+.more { font-size: 13px; color: var(--muted); }
+.more summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+.more p { margin: 8px 0 0; }
+.more b { color: var(--ink); }
+.links { display: flex; flex-wrap: wrap; gap: 12px; font-size: 13px; }
+.links a { color: var(--qloo); text-decoration: none; font-weight: 600; }
+.links a:hover { text-decoration: underline; }
 .why.loading { color: var(--muted); }
 .bars { display: grid; gap: 7px; }
 .bar { display: grid; grid-template-columns: 70px 1fr 38px; gap: 8px; align-items: center; font-size: 13px; }

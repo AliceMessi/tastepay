@@ -43,6 +43,14 @@ export interface Candidate {
   closed?: boolean;
   primaryGenre?: string;
   popularity?: number;
+  images?: string[];
+  phone?: string;
+  menuUrl?: string;
+  hours?: Record<string, { opens?: string; closes?: string; closed?: boolean }[]>;
+  liveMusic?: boolean;
+  specialties?: string[];
+  keywords?: string[];
+  details?: { highlights?: string; ambience?: string; cuisine?: string; service?: string };
 }
 
 export interface PlaceHit {
@@ -151,6 +159,14 @@ export class QlooClient {
   }
 }
 
+function clip(text: unknown, max = 320): string | undefined {
+  if (typeof text !== "string" || !text.trim()) return undefined;
+  const t = text.trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(". ") + 1, cut.lastIndexOf(" ")))}…`;
+}
+
 export function toCandidate(e: any): Candidate {
   const p = e.properties ?? {};
   const price = Number(p.price_level);
@@ -164,6 +180,19 @@ export function toCandidate(e: any): Candidate {
     rating: Number.isFinite(rating) && rating > 0 ? Math.round(rating * 10) / 10 : undefined,
     address: p.address ?? undefined,
     image: p.images?.[0]?.url ?? undefined,
+    images: (p.images ?? []).map((i: any) => i?.url).filter(Boolean).slice(0, 4),
+    phone: p.phone ?? undefined,
+    menuUrl: p.menu_url ?? undefined,
+    hours: p.hours && typeof p.hours === "object" ? p.hours : undefined,
+    liveMusic: p.live_music === true || undefined,
+    specialties: (p.specialty_dishes ?? []).map((d: any) => d?.name).filter(Boolean).slice(0, 5),
+    keywords: (p.keywords ?? []).map((k: any) => k?.name).filter(Boolean).slice(0, 6),
+    details: {
+      highlights: clip(p.unique_selling_points),
+      ambience: clip(p.ambience_description),
+      cuisine: clip(p.cuisine_description),
+      service: clip(p.service_description),
+    },
     website: p.website ?? undefined,
     description: p.short_description ?? p.description ?? undefined,
     closed: p.is_closed === true,

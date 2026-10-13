@@ -237,6 +237,7 @@ export class TasteAgent {
         name: p.candidate.name,
         shared_vibe: p.sharedTags.map((x) => x.name),
         fit_per_person: Object.fromEntries(p.perMember.map((s) => [s.member, Math.round(s.score * 100)])),
+        highlights: p.candidate.details?.highlights?.slice(0, 220),
       })),
     };
     const res = picks.length
