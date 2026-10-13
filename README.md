@@ -27,6 +27,8 @@ Organising a team dinner, drinks or a weekend away means guessing what everyone 
 | Group signal | same call with everyone's entities | Widens the candidate pool |
 | Fair ranking | — | Every candidate gets a score for every person (a missing one is estimated just below that person's lowest known affinity); group fit = 0.6 × min + 0.4 × mean; filters on `price_level`, closed venues and locality names |
 | Shared vibe | entity tags from insights | Tags carried by at least two people's own top picks, weighted by rarity in the pool |
+| Venue card | entity properties from insights | Photo, today's hours, live music, specialties, what people mention (keywords), highlights, atmosphere, food and service descriptions, website, menu, phone |
+| Small towns | `filter.location=POINT(lon lat)` + `filter.location.radius` | When `filter.location.query` cannot resolve a town, it is geocoded once with OpenStreetMap Nominatim and searched within 12 km |
 | Fact-check | `GET /search` with `types=urn:entity:place` | Verifies the places a taste-blind LLM suggested |
 | Weekend trip | `GET /v2/insights` with `filter.type=urn:entity:destination` | Destinations that fit the group |
 
@@ -49,6 +51,7 @@ tests/             unit tests with synthetic fixtures (no Qloo data committed)
 - **Privacy**: names never leave the browser; Qloo receives only the favourites, the city and the filters. Affinities are aggregate patterns, not facts about a person.
 - **LLM**: OpenRouter, a short chain of models with a time budget. Every LLM step has a deterministic fallback, so the Qloo-based plan always works even when no model answers.
 - **Rate limits**: Qloo calls run at most two at a time with retry and back-off; answers are cached per function instance.
+- **Photos**: Qloo's photo first; if it does not load within 5 s, the venue website's own preview image (og:image, public hosts only); otherwise a placeholder that links to the place on Google Maps (a link, no data is copied from Google).
 
 ## Run it locally
 
