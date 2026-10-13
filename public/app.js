@@ -3,6 +3,7 @@
 
 const $ = (s) => document.querySelector(s);
 const OCC_LOCAL = { dinner: true, drinks: true, culture: true, trip: false };
+const OCC_ICON = { dinner: "🍽", drinks: "🍸", culture: "🖼", trip: "✈️" };
 const EXAMPLE = [
   { name: "Sara", favourites: ["Radiohead", "Haruki Murakami"] },
   { name: "Luca", favourites: ["The Grand Budapest Hotel", "Miles Davis"] },
@@ -228,7 +229,10 @@ function renderPicks(loading) {
 function pickCard(p, i, loading) {
   const c = p.candidate;
   const ex = state.explanations[c.id];
+  const mapsPhotos = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([c.name, c.address].filter(Boolean).join(" "))}`;
   const img = h("div", { class: "img" },
+    h("div", { class: "ph" }, h("span", { class: "ph-icon" }, OCC_ICON[state.request.occasion] ?? "📍"),
+      h("a", { class: "ph-link", href: mapsPhotos, target: "_blank", rel: "noopener nofollow" }, "See photos on Google Maps ↗")),
     photo(c),
     h("span", { class: "rank" }, `#${i + 1}`), h("span", { class: "fit" }, `${Math.round(p.fit * 100)}% group fit`));
   const meta = [c.priceLevel ? "€".repeat(c.priceLevel) : null, c.rating ? `★ ${c.rating}` : null, c.address].filter(Boolean).join(" · ");
@@ -289,7 +293,7 @@ function photo(c) {
     const url = queue.shift();
     if (url) {
       el.src = url;
-      timer = setTimeout(next, 8000); // a stalled image server counts as a failure
+      timer = setTimeout(next, 5000); // a stalled image server counts as a failure
       return;
     }
     if (!triedWebsite && c.website) {
