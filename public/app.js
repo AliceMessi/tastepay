@@ -351,8 +351,9 @@ async function loadPayPal() {
   if (!cfg.paypalClientId) throw new Error("Payments are not configured.");
   await new Promise((resolve, reject) => {
     const s = document.createElement("script");
-    // enable-funding=card shows "Debit or Credit Card", so a sandbox test card works without any PayPal account.
-    s.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(cfg.paypalClientId)}&currency=EUR&intent=capture&enable-funding=card&disable-funding=paylater,venmo`;
+    // card-fields renders the card form inside our page (no PayPal sign-up form);
+    // the card data still goes straight to PayPal, never to our server.
+    s.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(cfg.paypalClientId)}&currency=EUR&intent=capture&components=buttons,card-fields&enable-funding=card&disable-funding=paylater,venmo`;
     s.onload = resolve;
     s.onerror = () => reject(new Error("Could not load PayPal"));
     document.head.append(s);
@@ -366,19 +367,58 @@ async function renderPayers(pick) {
   box.replaceChildren();
   let paypal;
   try { paypal = await loadPayPal(); } catch (e) { box.append(h("p", { class: "status error" }, e.message)); return; }
+  const cardFieldsOk = Boolean(paypal.CardFields) && paypal.CardFields({ createOrder: async () => "" }).isEligible();
   for (const m of state.request.members) {
-    const slot = h("div", {});
+    const slot = h("div", { class: "pay-slot" });
     box.append(h("div", { class: "payer" }, h("b", {}, m.name), slot));
-    paypal.Buttons({
-      style: { layout: "vertical", height: 40 },
-      createOrder: async () => (await api("/api/pay", { action: "create", amount: Number($("#share").value), description: `${pick.candidate.name} (${m.name})` })).id,
-      onApprove: async (data) => {
-        const r = await api("/api/pay", { action: "capture", orderId: data.orderID });
-        slot.replaceChildren(h("span", { class: "paid" }, `Paid ✓ €${Number($("#share").value).toFixed(2)} · sandbox order ${r.id}`));
-      },
-      onError: (err) => slot.append(h("p", { class: "status error" }, String(err?.message ?? err))),
-    }).render(slot);
+    const createOrder = async () =>
+      (await api("/api/pay", { action: "create", amount: Number($("#share").value), description: `${pick.candidate.name} (${m.name})` })).id;
+    const onApprove = async (data) => {
+      const r = await api("/api/pay", { action: "capture", orderId: data.orderID });
+      slot.replaceChildren(h("span", { class: "paid" }, `Paid ✓ €${Number($("#share").value).toFixed(2)} · sandbox order ${r.id}`));
+    };
+    const onError = (err) => slot.append(h("p", { class: "status error" }, String(err?.message ?? err)));
+
+    if (cardFieldsOk) {
+      // Card form inline; PayPal button only for the PayPal wallet itself.
+      const wallet = h("div", {});
+      slot.append(wallet);
+      paypal.Buttons({ fundingSource: paypal.FUNDING.PAYPAL, style: { height: 40 }, createOrder, onApprove, onError }).render(wallet);
+      slot.append(cardForm(paypal, createOrder, onApprove, onError));
+    } else {
+      paypal.Buttons({ style: { layout: "vertical", height: 40 }, createOrder, onApprove, onError }).render(slot);
+    }
   }
+}
+
+function cardForm(paypal, createOrder, onApprove, onError) {
+  const form = h("details", { class: "card-form" }, h("summary", {}, "Pay by card (no PayPal account)"));
+  const fields = { name: h("div", { class: "cf" }), number: h("div", { class: "cf" }), expiry: h("div", { class: "cf half" }), cvv: h("div", { class: "cf half" }) };
+  const pay = h("button", { type: "button", class: "primary small" }, `Pay €${Number($("#share").value).toFixed(2)}`);
+  form.append(fields.name, fields.number, h("div", { class: "cf-row" }, fields.expiry, fields.cvv), pay);
+  let rendered = false;
+  let cf;
+  form.addEventListener("toggle", () => {
+    if (!form.open || rendered) return;
+    rendered = true;
+    cf = paypal.CardFields({ createOrder, onApprove, onError, style: { input: { "font-size": "15px" } } });
+    cf.NameField().render(fields.name);
+    cf.NumberField().render(fields.number);
+    cf.ExpiryField().render(fields.expiry);
+    cf.CVVField().render(fields.cvv);
+  });
+  pay.addEventListener("click", async () => {
+    pay.disabled = true;
+    pay.textContent = "Paying…";
+    try {
+      await cf.submit();
+    } catch (err) {
+      onError(err);
+      pay.disabled = false;
+      pay.textContent = `Pay €${Number($("#share").value).toFixed(2)}`;
+    }
+  });
+  return form;
 }
 
 // ---------- init ----------
