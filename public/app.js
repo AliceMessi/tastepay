@@ -280,7 +280,8 @@ function pickCard(p, i, loading) {
  */
 function photo(c) {
   const queue = [...(c.images?.length ? c.images : c.image ? [c.image] : [])];
-  const el = h("img", { alt: "", loading: "lazy", decoding: "async", referrerpolicy: "no-referrer" });
+  // Not lazy: with only three cards, lazy loading would start after the stall timer.
+  const el = h("img", { alt: "", decoding: "async", referrerpolicy: "no-referrer" });
   let triedWebsite = false;
   let timer;
   const next = async () => {
@@ -288,7 +289,7 @@ function photo(c) {
     const url = queue.shift();
     if (url) {
       el.src = url;
-      timer = setTimeout(next, 6000); // a stalled image server counts as a failure
+      timer = setTimeout(next, 8000); // a stalled image server counts as a failure
       return;
     }
     if (!triedWebsite && c.website) {
