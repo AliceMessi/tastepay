@@ -70,3 +70,11 @@ describe("validation and parsing helpers", () => {
     expect(extractJson("no json")).toBeNull();
   });
 });
+
+describe("LLM chain config", () => {
+  it("uses OPENROUTER_MODELS when set", async () => {
+    const { modelsFromEnv, MODEL_CHAIN } = await import("../src/llm.ts");
+    expect(modelsFromEnv("a/b, c/d")).toEqual(["a/b", "c/d"]);
+    expect(modelsFromEnv(undefined)).toEqual(MODEL_CHAIN);
+  });
+});

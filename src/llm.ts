@@ -34,7 +34,16 @@ export interface ChatResult {
 
 type Fetch = typeof fetch;
 
+/** OPENROUTER_MODELS (comma separated) overrides the chain without a code change. */
+export function modelsFromEnv(value: string | undefined): string[] {
+  const list = (value ?? "").split(",").map((m) => m.trim()).filter(Boolean);
+  return list.length ? list : MODEL_CHAIN;
+}
+
 export class LlmClient {
+  // Successful answers are reused: the same brief twice should not spend the free quota twice.
+  private cache = new Map<string, ChatResult>();
+
   constructor(
     private apiKey: string | undefined,
     private models = MODEL_CHAIN,
@@ -52,6 +61,9 @@ export class LlmClient {
    */
   async chat(messages: ChatMessage[], tools?: ToolSpec[], maxTokens = 700, budgetMs = 8_500): Promise<ChatResult | null> {
     if (!this.apiKey) return null;
+    const key = JSON.stringify([messages, tools, maxTokens]);
+    const hit = this.cache.get(key);
+    if (hit) return hit;
     const deadline = Date.now() + budgetMs;
     for (const model of this.models) {
       const left = deadline - Date.now();
@@ -73,7 +85,10 @@ export class LlmClient {
         const message = body.choices?.[0]?.message;
         if (!message) continue;
         if (!message.tool_calls?.length && !message.content?.trim()) continue;
-        return { message: { role: "assistant", content: message.content ?? null, tool_calls: message.tool_calls }, model };
+        const result: ChatResult = { message: { role: "assistant", content: message.content ?? null, tool_calls: message.tool_calls }, model };
+        if (this.cache.size > 200) this.cache.delete(this.cache.keys().next().value!);
+        this.cache.set(key, result);
+        return result;
       } catch {
         // timeout or network error: try the next model
       }

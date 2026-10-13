@@ -105,7 +105,8 @@ export class TasteAgent {
         await Promise.all(
           m.favourites.map(async (query) => {
             const hits = await this.qloo.search(query).catch(() => []);
-            return hits.length ? { ...hits[0], query, alternatives: hits.slice(1, 4) } : null;
+            const alternatives = hits.slice(1).filter((h, i, all) => h.id !== hits[0].id && all.findIndex((x) => x.id === h.id) === i).slice(0, 3);
+            return hits.length ? { ...hits[0], query, alternatives } : null;
           }),
         )
       ).filter((x): x is ResolvedTaste => x !== null),

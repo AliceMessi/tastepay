@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TastePay — plans your whole group will love</title>
+  <meta name="description" content="Tell TastePay what each friend loves. It uses Qloo's taste graph to find the place that fits everyone, explains why, and splits the bill.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%23ff5a3c'/><path d='M18 40c4 6 24 6 28 0' stroke='white' stroke-width='5' fill='none' stroke-linecap='round'/><circle cx='24' cy='26' r='4' fill='white'/><circle cx='40' cy='26' r='4' fill='white'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-row">
+      <div class="logo"><span class="logo-mark">☺</span> TastePay</div>
+      <nav class="top-links">
+        <a href="#how">How it works</a>
+        <a href="https://github.com/AliceMessi/tastepay" target="_blank" rel="noopener">Code</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero wrap">
+      <p class="eyebrow">Powered by Qloo Taste AI™</p>
+      <h1>Plans your <em>whole</em> group will love.</h1>
+      <p class="lede">Tell us what each friend is into — a band, a film, a book. TastePay reads the group's taste with Qloo, finds the place that fits <strong>everyone</strong> (not just the loudest one), explains why, and splits the bill.</p>
+    </section>
+
+    <section class="wrap card" id="input">
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-tab="form" role="tab" aria-selected="true">Build the group</button>
+        <button class="tab" data-tab="brief" role="tab" aria-selected="false">Just describe it</button>
+      </div>
+
+      <div class="tab-panel" id="panel-form">
+        <div class="row">
+          <label class="field grow">Occasion
+            <div class="chips" id="occasion">
+              <button type="button" class="chip active" data-v="dinner">🍽 Dinner</button>
+              <button type="button" class="chip" data-v="drinks">🍸 Drinks</button>
+              <button type="button" class="chip" data-v="culture">🖼 Culture</button>
+              <button type="button" class="chip" data-v="trip">✈️ Weekend trip</button>
+            </div>
+          </label>
+        </div>
+        <div class="row">
+          <label class="field grow" id="city-field">City
+            <input id="city" type="text" value="Milan" placeholder="e.g. Milan, London, New York" autocomplete="off">
+          </label>
+          <label class="field">Budget per person (€)
+            <input id="budget" type="number" min="5" max="300" value="40">
+          </label>
+        </div>
+        <div class="people-head">
+          <span>Who's coming? <small>Names stay in your browser. Only the favourites go to Qloo.</small></span>
+          <button type="button" class="ghost" id="add-person">+ Add person</button>
+        </div>
+        <div id="people"></div>
+      </div>
+
+      <div class="tab-panel hidden" id="panel-brief">
+        <label class="field">Describe the plan in your own words
+          <textarea id="brief" rows="4">Team dinner in Milan on Friday, about 40€ each. Sara: Radiohead, Haruki Murakami. Luca: The Grand Budapest Hotel, Miles Davis. Giulia: Spirited Away, Billie Eilish.</textarea>
+        </label>
+        <p class="hint">The agent reads the occasion, city, budget and each person's favourites, then fills in the form for you.</p>
+      </div>
+
+      <div class="actions">
+        <button class="primary" id="go">Find our place →</button>
+        <span class="status" id="status" aria-live="polite"></span>
+      </div>
+    </section>
+
+    <section class="wrap hidden" id="work">
+      <div class="grid-2">
+        <div class="card">
+          <h2>What the agent is doing</h2>
+          <ol class="trace" id="trace"></ol>
+        </div>
+        <div class="card">
+          <h2>How we read your tastes</h2>
+          <p class="hint">Tap a taste to fix it if we picked the wrong one.</p>
+          <div id="tastes"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="wrap hidden" id="results">
+      <h2 class="section-title">Your group's top 3</h2>
+      <div class="picks" id="picks"></div>
+    </section>
+
+    <section class="wrap hidden" id="compare">
+      <div class="card compare">
+        <div>
+          <h2>Same question, LLM without Qloo</h2>
+          <p class="hint">A general-purpose model got the exact same brief but no taste data. We then looked up every place it named in Qloo's place graph.</p>
+          <pre class="baseline" id="baseline"></pre>
+        </div>
+        <ul class="claims" id="claims"></ul>
+      </div>
+    </section>
+
+    <section class="wrap hidden" id="pay">
+      <div class="card">
+        <h2>Split it</h2>
+        <p class="hint" id="pay-intro"></p>
+        <div class="row">
+          <label class="field">Share per person (€)
+            <input id="share" type="number" min="1" max="300" value="40">
+          </label>
+        </div>
+        <div id="payers"></div>
+        <p class="fine">PayPal <strong>sandbox</strong>: no real money moves. Log in with a PayPal sandbox buyer account, or choose "Debit or Credit Card" and use a PayPal test card.</p>
+      </div>
+    </section>
+
+    <section class="wrap how" id="how">
+      <h2 class="section-title">How it works</h2>
+      <div class="steps">
+        <div><b>1 · Resolve</b><p>Each favourite becomes a Qloo entity (artist, film, book, show…) with Qloo search.</p></div>
+        <div><b>2 · Taste affinity</b><p>For every person, Qloo Insights ranks places in your city by affinity to their own tastes.</p></div>
+        <div><b>3 · Fair group fit</b><p>Every candidate gets a score for every person. We rank by the least-happy person first, then the average, within your budget.</p></div>
+        <div><b>4 · Explain & check</b><p>We show the taste tags the group shares, and fact-check what a taste-blind LLM would have suggested.</p></div>
+      </div>
+      <p class="fine">Affinities are aggregate patterns from Qloo, not facts about a person. TastePay sends Qloo only the favourites you type — never names. Payments run in PayPal's sandbox.</p>
+    </section>
+  </main>
+
+  <footer class="wrap foot">Built for the Qloo Agentic Hackathon · Taste data by Qloo · MIT licensed</footer>
+
+  <template id="person-tpl">
+    <div class="person">
+      <input class="p-name" type="text" placeholder="Name" maxlength="30" aria-label="Name">
+      <input class="p-favs" type="text" placeholder="2–3 favourites, comma separated (artist, film, book…)" aria-label="Favourites">
+      <button type="button" class="icon remove" aria-label="Remove person">×</button>
+    </div>
+  </template>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>
