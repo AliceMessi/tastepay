@@ -351,7 +351,8 @@ async function loadPayPal() {
   if (!cfg.paypalClientId) throw new Error("Payments are not configured.");
   await new Promise((resolve, reject) => {
     const s = document.createElement("script");
-    s.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(cfg.paypalClientId)}&currency=EUR&intent=capture`;
+    // enable-funding=card shows "Debit or Credit Card", so a sandbox test card works without any PayPal account.
+    s.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(cfg.paypalClientId)}&currency=EUR&intent=capture&enable-funding=card&disable-funding=paylater,venmo`;
     s.onload = resolve;
     s.onerror = () => reject(new Error("Could not load PayPal"));
     document.head.append(s);
@@ -369,7 +370,7 @@ async function renderPayers(pick) {
     const slot = h("div", {});
     box.append(h("div", { class: "payer" }, h("b", {}, m.name), slot));
     paypal.Buttons({
-      style: { layout: "horizontal", height: 40, tagline: false },
+      style: { layout: "vertical", height: 40 },
       createOrder: async () => (await api("/api/pay", { action: "create", amount: Number($("#share").value), description: `${pick.candidate.name} (${m.name})` })).id,
       onApprove: async (data) => {
         const r = await api("/api/pay", { action: "capture", orderId: data.orderID });
