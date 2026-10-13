@@ -2,11 +2,15 @@
 // short chain and give up quickly: every caller has a deterministic fallback.
 
 // Fastest first: laguna answers in ~2 s without reasoning tokens; the others think first.
+// "openrouter/free" lets OpenRouter pick any free model that is up. Quality varies
+// (it may route to a tiny or a safety-classifier model), so it comes last and its
+// answers must pass the caller's validation.
 export const MODEL_CHAIN = [
   "poolside/laguna-s-2.1:free",
   "nvidia/nemotron-3-super-120b-a12b:free",
   "google/gemma-4-31b-it:free",
-  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "openrouter/free",
+  "openrouter/free",
 ];
 
 export interface ChatMessage {
@@ -59,7 +63,13 @@ export class LlmClient {
    * First model in the chain that answers wins; null when none does or when
    * `budgetMs` runs out (Netlify functions must answer within ~10 s).
    */
-  async chat(messages: ChatMessage[], tools?: ToolSpec[], maxTokens = 700, budgetMs = 8_500): Promise<ChatResult | null> {
+  async chat(
+    messages: ChatMessage[],
+    tools?: ToolSpec[],
+    maxTokens = 700,
+    budgetMs = 8_500,
+    valid: (content: string) => boolean = () => true,
+  ): Promise<ChatResult | null> {
     if (!this.apiKey) return null;
     const key = JSON.stringify([messages, tools, maxTokens]);
     const hit = this.cache.get(key);
@@ -85,7 +95,8 @@ export class LlmClient {
         const message = body.choices?.[0]?.message;
         if (!message) continue;
         if (!message.tool_calls?.length && !message.content?.trim()) continue;
-        const result: ChatResult = { message: { role: "assistant", content: message.content ?? null, tool_calls: message.tool_calls }, model };
+        if (!message.tool_calls?.length && !valid(message.content)) continue;
+        const result: ChatResult = { message: { role: "assistant", content: message.content ?? null, tool_calls: message.tool_calls }, model: body.model ?? model };
         if (this.cache.size > 200) this.cache.delete(this.cache.keys().next().value!);
         this.cache.set(key, result);
         return result;

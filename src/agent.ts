@@ -4,15 +4,29 @@
 
 import { extractJson, LlmClient } from "./llm.ts";
 import { rankGroup, type GroupPick, type MemberScores } from "./group.ts";
-import { QlooClient, type TasteEntity } from "./qloo.ts";
+import { QlooClient, type Candidate, type TasteEntity } from "./qloo.ts";
 import { extractNamedPlaces, factCheck, type Claim } from "./factcheck.ts";
 
 export type Occasion = "dinner" | "drinks" | "culture" | "trip";
 
-export const OCCASIONS: Record<Occasion, { label: string; type: string; tags?: string[]; local: boolean }> = {
-  dinner: { label: "dinner", type: "urn:entity:place", tags: ["urn:tag:genre:place:restaurant"], local: true },
-  drinks: { label: "drinks", type: "urn:entity:place", tags: ["urn:tag:genre:place:restaurant:bar"], local: true },
-  culture: { label: "a culture outing", type: "urn:entity:place", tags: ["urn:tag:genre:place:museum", "urn:tag:genre:place:art_gallery"], local: true },
+const G = "urn:tag:genre:place:";
+const NOT_DINNER = ["cafe", "coffee", "dessert", "bakery", "ice_cream", "juice", "tea", "donut", "snack"];
+
+export const OCCASIONS: Record<Occasion, { label: string; type: string; tags?: string[]; local: boolean; accept?: (primaryGenre?: string) => boolean }> = {
+  // Qloo's tag filter also returns markets, malls and hotels that merely have a
+  // restaurant inside; the venue's primary genre says what it really is.
+  dinner: {
+    label: "dinner", type: "urn:entity:place", tags: [`${G}restaurant`], local: true,
+    accept: (g) => !!g?.startsWith(`${G}restaurant`) && !NOT_DINNER.some((x) => g.includes(x)) && !/(bar|pub|tabac)/.test(g.replace(G, "")),
+  },
+  drinks: {
+    label: "drinks", type: "urn:entity:place", tags: [`${G}restaurant:bar`], local: true,
+    accept: (g) => !!g && /(bar|pub|brewery|wine|cocktail|lounge|tavern|izakaya)/.test(g.replace(G, "")),
+  },
+  culture: {
+    label: "a culture outing", type: "urn:entity:place", tags: [`${G}museum`, `${G}art_gallery`], local: true,
+    accept: (g) => !!g && /(museum|gallery|art|cultural|exhibit|theater|theatre|library)/.test(g.replace(G, "")),
+  },
   trip: { label: "a weekend trip", type: "urn:entity:destination", local: false },
 };
 
@@ -51,6 +65,12 @@ export interface Explanation {
 }
 
 export const MAX_MEMBERS = 8;
+
+export class QlooBusyError extends Error {
+  constructor() {
+    super("Qloo is busy right now. Please try again in a few seconds.");
+  }
+}
 export const MAX_FAVOURITES = 3;
 
 export function validateRequest(r: PlanRequest): string | null {
@@ -86,7 +106,7 @@ export class TasteAgent {
           "Favourites are things a person loves (artists, films, books, shows, brands). Keep names exactly as written. Do not add people or favourites.",
       },
       { role: "user", content: brief.slice(0, 1500) },
-    ]);
+    ], undefined, 700, 8_500, (c) => extractJson(c) !== null);
     const parsed = extractJson<PlanRequest>(res?.message.content);
     if (parsed && !validateRequest(parsed)) {
       const request = normalise(parsed);
@@ -128,13 +148,21 @@ export class TasteAgent {
     const withTastes = members.filter((m) => m.tastes.length).slice(0, MAX_MEMBERS);
     const base = { type: occasion.type, location: occasion.local ? req.city : undefined, tags: occasion.tags };
     const t = Date.now();
-    const [perMember, pool] = await Promise.all([
-      mapLimit(withTastes, 2, async (m): Promise<MemberScores> => ({
-        member: m.name,
-        picks: await this.qloo.insights({ ...base, entityIds: m.tastes.map((x) => x.id) }),
-      })),
-      this.qloo.insights({ ...base, entityIds: withTastes.flatMap((m) => m.tastes.map((x) => x.id)) }),
-    ]);
+    // At most two Qloo calls in flight (bursts get HTTP 429). One person's list
+    // failing does not sink the plan: they are scored from the others' data.
+    const groupIds = withTastes.flatMap((m) => m.tastes.map((x) => x.id));
+    const jobs = [
+      ...withTastes.map((m) => ({ member: m.name as string | null, ids: m.tastes.map((x) => x.id), page: 1 })),
+      // The group signal gets two pages: after the genre filter one page can be thin.
+      { member: null as string | null, ids: groupIds, page: 1 },
+      { member: null as string | null, ids: groupIds, page: 2 },
+    ];
+    const lists = await mapLimit(jobs, 2, async (j) => ({ ...j, picks: await this.qloo.insights({ ...base, entityIds: j.ids, page: j.page }).catch(() => null) }));
+    const keep = keeper(occasion.accept);
+    const perMember: MemberScores[] = lists.filter((l) => l.member && l.picks).map((l) => ({ member: l.member!, picks: keep(l.picks!) }));
+    const pool = keep(lists.filter((l) => l.member === null).flatMap((l) => l.picks ?? []));
+    if (!perMember.length && !pool.length) throw new QlooBusyError();
+    const missing = withTastes.filter((m) => !perMember.some((p) => p.member === m.name)).map((m) => m.name);
     const t2 = Date.now();
     const picks = rankGroup(perMember, pool, { budgetPerPerson: req.budgetPerPerson, top: 3, city: req.city });
     return {
@@ -143,7 +171,8 @@ export class TasteAgent {
         {
           step: "Taste affinities",
           source: "Qloo /v2/insights",
-          detail: `${perMember.map((m) => `${m.member}: ${m.picks.length}`).join(", ")} · group signal: ${pool.length} ${occasion.local ? `in ${req.city}` : "destinations"}`,
+          detail: `${perMember.map((m) => `${m.member}: ${m.picks.length}`).join(", ")} · group signal: ${pool.length} ${occasion.local ? `places in ${req.city}` : "destinations"}` +
+            (missing.length ? ` · Qloo busy for ${missing.join(", ")} (scores estimated)` : ""),
           ms: t2 - t,
         },
         {
@@ -189,6 +218,8 @@ export class TasteAgent {
           ],
           undefined,
           1500,
+          8_500,
+          (c) => (extractJson<{ picks?: unknown[] }>(c)?.picks?.length ?? 0) > 0,
         )
       : null;
     const parsed = extractJson<{ picks?: { id: string; why: string; per_person?: Record<string, string> }[] }>(res?.message.content);
@@ -222,6 +253,8 @@ export class TasteAgent {
       [{ role: "user", content: `Suggest 3 options for ${OCCASIONS[req.occasion].label}${where} for a group${budget}. ${who}. Name each place and give one line why. Be brief.` }],
       undefined,
       600,
+      8_500,
+      (c) => c.length > 80 && /\d[.)]|\*\*|^- /m.test(c),
     );
     const text = res?.message.content?.trim() || null;
     const trace: TraceStep[] = [
@@ -242,6 +275,19 @@ export class TasteAgent {
     }
     return { text, claims, trace };
   }
+}
+
+/**
+ * Keep candidates of the right kind (primary genre) and, when enough remain, drop
+ * the little-known ones (bottom of Qloo's popularity): a school canteen bar can
+ * match a taste profile but is not where a group goes out.
+ */
+export function keeper(accept?: (genre?: string) => boolean, minPopularity = 0.85, minLeft = 6) {
+  return (picks: Candidate[]): Candidate[] => {
+    const right = accept ? picks.filter((c) => accept(c.primaryGenre)) : picks;
+    const known = right.filter((c) => c.popularity === undefined || c.popularity >= minPopularity);
+    return known.length >= minLeft ? known : right;
+  };
 }
 
 export function templateExplanation(p: GroupPick, members: ResolvedMember[]): Explanation {

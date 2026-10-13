@@ -4,13 +4,23 @@ import { extractJson, LlmClient } from "../src/llm.ts";
 import { QlooClient } from "../src/qloo.ts";
 
 // A fake Qloo that answers from synthetic data, keyed by endpoint.
-function fakeQloo(calls: string[] = []) {
+const genre = (g: string) => ({ primary_genre: { id: `urn:tag:genre:place:${g}` } });
+const VENUES = [
+  { entity_id: "p1", name: "Venue 1", query: { affinity: 0.8 }, tags: [], properties: genre("restaurant:italian") },
+  { entity_id: "p2", name: "Venue 2", query: { affinity: 0.7 }, tags: [], properties: genre("restaurant") },
+  { entity_id: "mall", name: "Big Mall", query: { affinity: 0.95 }, tags: [], properties: genre("shopping_mall") },
+  { entity_id: "cafe", name: "Corner Cafe", query: { affinity: 0.9 }, tags: [], properties: genre("restaurant:cafe") },
+];
+
+function fakeQloo(calls: string[] = [], failInsights = 0) {
+  let insightCalls = 0;
   const fetchImpl = (async (url: string) => {
     calls.push(url);
     const u = new URL(url);
+    if (u.pathname !== "/search" && insightCalls++ < failInsights) return new Response("{}", { status: 429 });
     const body = u.pathname === "/search"
       ? { results: [{ entity_id: `id-${u.searchParams.get("query")}`, name: u.searchParams.get("query"), types: ["urn:entity:artist"] }] }
-      : { success: true, results: { entities: [1, 2, 3].map((i) => ({ entity_id: `p${i}`, name: `Venue ${i}`, query: { affinity: 0.9 - i / 10 }, tags: [], properties: {} })) } };
+      : { success: true, results: { entities: VENUES } };
     return new Response(JSON.stringify(body), { status: 200 });
   }) as typeof fetch;
   return new QlooClient("test-key", "https://qloo.test", fetchImpl, 1000, 0, 1);
@@ -41,9 +51,34 @@ describe("TasteAgent without any LLM", () => {
     expect(calls.some((c) => c.includes("Sara") || c.includes("Luca"))).toBe(false);
   });
 
+  it("keeps only real restaurants for dinner (no malls, no cafes)", async () => {
+    const agent = new TasteAgent(fakeQloo(), offlineLlm);
+    const r = await agent.resolve(request.members);
+    const k = await agent.rank(request, r.members);
+    expect(k.picks.map((p) => p.candidate.id)).toEqual(["p1", "p2"]);
+  });
+
+  it("still ranks when Qloo rejects one person's request", async () => {
+    const agent = new TasteAgent(fakeQloo([], 1), offlineLlm);
+    const r = await agent.resolve(request.members);
+    const k = await agent.rank(request, r.members);
+    expect(k.picks.length).toBeGreaterThan(0);
+    expect(k.trace[0].detail).toMatch(/Qloo busy for/);
+  });
+
   it("returns no baseline when no model is available", async () => {
     const b = await new TasteAgent(fakeQloo(), offlineLlm).baseline(request);
     expect(b.text).toBeNull();
+  });
+});
+
+describe("keeper", () => {
+  it("drops little-known places only when enough well-known ones remain", async () => {
+    const { keeper } = await import("../src/agent.ts");
+    const c = (id: string, popularity: number) => ({ id, name: id, affinity: 0.5, tags: [], popularity, primaryGenre: "urn:tag:genre:place:restaurant" });
+    const many = [...Array(6)].map((_, i) => c(`k${i}`, 0.95)).concat([c("obscure", 0.5)]);
+    expect(keeper()(many).map((x) => x.id)).not.toContain("obscure");
+    expect(keeper()([c("a", 0.95), c("obscure", 0.5)]).map((x) => x.id)).toEqual(["a", "obscure"]);
   });
 });
 

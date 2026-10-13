@@ -41,6 +41,8 @@ export interface Candidate {
   website?: string;
   description?: string;
   closed?: boolean;
+  primaryGenre?: string;
+  popularity?: number;
 }
 
 export interface PlaceHit {
@@ -57,6 +59,7 @@ export interface InsightsQuery {
   location?: string;
   tags?: string[];
   take?: number;
+  page?: number;
 }
 
 type Fetch = typeof fetch;
@@ -68,7 +71,7 @@ export class QlooClient {
     private apiKey: string,
     private baseUrl = QLOO_BASE_URL,
     private fetchImpl: Fetch = fetch,
-    private timeoutMs = 15_000,
+    private timeoutMs = 8_000,
     private retries = 3,
     private backoffMs = 700,
   ) {
@@ -131,6 +134,7 @@ export class QlooClient {
     };
     if (q.location) params["filter.location.query"] = q.location;
     if (q.tags?.length) params["filter.tags"] = q.tags.join(",");
+    if (q.page && q.page > 1) params.page = String(q.page);
     const body = await this.get("/v2/insights", params);
     return (body.results?.entities ?? []).map(toCandidate);
   }
@@ -152,5 +156,7 @@ export function toCandidate(e: any): Candidate {
     website: p.website ?? undefined,
     description: p.short_description ?? p.description ?? undefined,
     closed: p.is_closed === true,
+    primaryGenre: p.primary_genre?.id ?? undefined,
+    popularity: typeof e.popularity === "number" ? e.popularity : undefined,
   };
 }

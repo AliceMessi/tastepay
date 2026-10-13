@@ -24,9 +24,14 @@ function h(tag, attrs = {}, ...children) {
   return el;
 }
 
-async function api(path, body) {
+async function api(path, body, retries = 1) {
   const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const data = await res.json().catch(() => ({}));
+  // Qloo or a function can be briefly busy: wait and try once more.
+  if ([429, 502, 503, 504].includes(res.status) && retries > 0) {
+    await new Promise((r) => setTimeout(r, 2500));
+    return api(path, body, retries - 1);
+  }
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data;
 }

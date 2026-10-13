@@ -1,6 +1,6 @@
 // Shared plumbing for the Netlify functions: clients from env, JSON in/out, a light rate limit.
 
-import { TasteAgent } from "./agent.ts";
+import { QlooBusyError, TasteAgent } from "./agent.ts";
 import { LlmClient, modelsFromEnv } from "./llm.ts";
 import { QlooClient } from "./qloo.ts";
 
@@ -47,6 +47,9 @@ export async function handle(fn: () => Promise<Response>): Promise<Response> {
     return await fn();
   } catch (e) {
     console.error(e);
+    if (e instanceof QlooBusyError || /HTTP 429/.test(String(e))) {
+      return json({ error: "Qloo is busy right now. Please try again in a few seconds.", retry: true }, 503);
+    }
     return json({ error: "Something went wrong on our side. Please try again in a moment." }, 502);
   }
 }
