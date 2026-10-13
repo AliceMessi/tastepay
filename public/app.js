@@ -150,7 +150,9 @@ async function run() {
     state.members = r.members;
     renderTastes();
 
-    const baseline = step("LLM without Qloo", () => api("/api/baseline", { request }));
+    // Free models are often busy: one more try for the comparison if the first gets no answer.
+    const baseline = step("LLM without Qloo", () => api("/api/baseline", { request }))
+      .then((b) => (b.text ? b : step("LLM without Qloo (retry)", () => api("/api/baseline", { request }))));
     await rankAndExplain();
     $("#work").scrollIntoView({ behavior: "smooth", block: "start" });
     baseline.then(renderBaseline).catch(() => {});
