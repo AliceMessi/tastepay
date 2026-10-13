@@ -61,7 +61,7 @@ export class LlmClient {
 
   /**
    * First model in the chain that answers wins; null when none does or when
-   * `budgetMs` runs out (Netlify functions must answer within ~10 s).
+   * `budgetMs` runs out (a Netlify function must answer in time; measured fine up to ~20 s).
    */
   async chat(
     messages: ChatMessage[],

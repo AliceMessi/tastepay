@@ -218,7 +218,7 @@ export class TasteAgent {
           ],
           undefined,
           1500,
-          8_500,
+          15_000,
           (c) => (extractJson<{ picks?: unknown[] }>(c)?.picks?.length ?? 0) > 0,
         )
       : null;
@@ -253,7 +253,7 @@ export class TasteAgent {
       [{ role: "user", content: `Suggest 3 options for ${OCCASIONS[req.occasion].label}${where} for a group${budget}. ${who}. Name each place and give one line why. Be brief.` }],
       undefined,
       600,
-      8_500,
+      20_000,
       (c) => c.length > 80 && /\d[.)]|\*\*|^- /m.test(c),
     );
     const text = res?.message.content?.trim() || null;
