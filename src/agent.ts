@@ -240,6 +240,9 @@ export class TasteAgent {
         highlights: p.candidate.details?.highlights?.slice(0, 220),
       })),
     };
+    // models that explain only some picks are skipped, but the fullest partial answer is kept as a fallback
+    let partial: string | null = null;
+    let partialSize = 0;
     const res = picks.length
       ? await this.llm.chat(
           [
@@ -255,23 +258,23 @@ export class TasteAgent {
           undefined,
           1500,
           15_000,
-          (c) => (extractJson<{ picks?: unknown[] }>(c)?.picks?.length ?? 0) > 0,
+          (c) => {
+            const n = matchExplained(extractJson<{ picks?: ModelPick[] }>(c)?.picks, picks).size;
+            if (n > partialSize) [partial, partialSize] = [c, n];
+            return n === picks.length;
+          },
         )
       : null;
-    const parsed = extractJson<{ picks?: { id: string; why: string; per_person?: Record<string, string> }[] }>(res?.message.content);
-    let fromModel = 0;
-    for (const p of parsed?.picks ?? []) {
-      if (picks.some((x) => x.candidate.id === p.id) && p.why) {
-        explanations[p.id] = { why: p.why, perMember: p.per_person ?? {} };
-        fromModel++;
-      }
-    }
+    const parsed = extractJson<{ picks?: ModelPick[] }>(res?.message.content ?? partial);
+    const matched = matchExplained(parsed?.picks, picks);
+    for (const [id, p] of matched) explanations[id] = { why: p.why, perMember: p.per_person ?? {} };
+    const fromModel = matched.size;
     for (const p of picks) explanations[p.candidate.id] ??= templateExplanation(p, members);
     return {
       explanations,
       trace: {
         step: "Explain",
-        source: fromModel ? `LLM ${res!.model}` : "Qloo tags (no model answered)",
+        source: fromModel ? `LLM ${res?.model ?? "free model (partial answer)"}` : "Qloo tags (no model answered)",
         detail: fromModel ? `${fromModel} explanations grounded in shared Qloo tags` : "explanations built from the shared Qloo tags",
         ms: Date.now() - t,
       },
@@ -324,6 +327,25 @@ export function keeper(accept?: (genre?: string) => boolean, minPopularity = 0.8
     const known = right.filter((c) => c.popularity === undefined || c.popularity >= minPopularity);
     return known.length >= minLeft ? known : right;
   };
+}
+
+interface ModelPick {
+  id?: string;
+  name?: string;
+  why?: string;
+  per_person?: Record<string, string>;
+}
+
+/** Ties the model's answers to our picks by id, or by name when the model echoed the name instead. */
+export function matchExplained(answers: ModelPick[] | undefined, picks: GroupPick[]): Map<string, ModelPick & { why: string }> {
+  const out = new Map<string, ModelPick & { why: string }>();
+  const norm = (s?: string) => (s ?? "").trim().toLowerCase();
+  for (const a of answers ?? []) {
+    if (!a || typeof a.why !== "string" || !a.why.trim()) continue;
+    const pick = picks.find((p) => p.candidate.id === a.id) ?? picks.find((p) => norm(p.candidate.name) === norm(a.name ?? a.id));
+    if (pick && !out.has(pick.candidate.id)) out.set(pick.candidate.id, a as ModelPick & { why: string });
+  }
+  return out;
 }
 
 export function templateExplanation(p: GroupPick, members: ResolvedMember[]): Explanation {

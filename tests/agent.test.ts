@@ -144,3 +144,31 @@ describe("LLM chain config", () => {
     expect(modelsFromEnv(undefined)).toEqual(MODEL_CHAIN);
   });
 });
+
+describe("matchExplained", () => {
+  const pick = (id: string, name: string) => ({ candidate: { id, name } }) as never;
+  const picks = [pick("p1", "Il Cestino"), pick("p2", "Gino's 1928"), pick("p3", "Taverna del Borgo Antico")];
+
+  it("matches by id, then by name, and skips empty answers", async () => {
+    const { matchExplained } = await import("../src/agent.ts");
+    const got = matchExplained(
+      [
+        { id: "p1", why: "a" },
+        { id: "Gino's 1928", why: "b" },
+        { name: "taverna del borgo antico", why: "c" },
+        { id: "p1", why: "duplicate" },
+        { id: "nowhere", why: "x" },
+        { id: "p2", why: "  " },
+      ],
+      picks,
+    );
+    expect([...got.keys()]).toEqual(["p1", "p2", "p3"]);
+    expect(got.get("p1")?.why).toBe("a");
+  });
+
+  it("reports a partial answer so the next model can be tried", async () => {
+    const { matchExplained } = await import("../src/agent.ts");
+    expect(matchExplained([{ id: "p3", why: "only one" }], picks).size).toBe(1);
+    expect(matchExplained(undefined, picks).size).toBe(0);
+  });
+});
